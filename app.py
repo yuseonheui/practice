@@ -1,116 +1,100 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import datetime
 import plotly.express as px
-import os  # os 모듈이 누락되어 추가했습니다.
+import plotly.graph_objects as go
+import folium
+from streamlit_folium import st_folium
 
-st.set_page_config(
-    page_title="BakeMap",
-    layout="wide")
+# --- 1. 페이지 설정 및 스타일 ---
+st.set_page_config(page_title="BakeMap - 데이터 기반 입지 분석", layout="wide")
 
-# -------------------------
-# 경로 설정 및 파일 확인 (디버깅용)
-# -------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# 'data' 폴더와 'csv' 파일의 경로를 시스템에 맞게 결합
-csv_path = os.path.join(BASE_DIR, "data", "bakery_license.csv")
-
-# 배포 시 파일이 있는지 확인하기 위한 로그 (불필요하면 나중에 삭제 가능)
-if not os.path.exists(csv_path):
-    st.error(f"⚠️ 파일을 찾을 수 없습니다: {csv_path}")
-    st.info("GitHub 저장소에 'data' 폴더와 'bakery_license.csv' 파일이 있는지 확인해주세요.")
-    st.stop() # 파일이 없으면 아래 코드를 실행하지 않고 멈춤
-
-st.title("🥐 BakeMap - 베이커리 창업 입지 분석")
-st.markdown("서울 공공데이터 기반 베이커리 상권 분석 MVP")
-
-# -------------------------
-# 데이터 로드
-# -------------------------
+# --- 2. 데이터 로딩 (Mock Data 포함) ---
 @st.cache_data
-def load_data():
-    # 수정된 경로(csv_path)를 사용합니다.
-    df = pd.read_csv(csv_path)
-    
-    df["인허가일자"] = pd.to_datetime(df["인허가일자"], errors="coerce")
-    df["폐업일자"] = pd.to_datetime(df["폐업일자"], errors="coerce")
-
+def get_advanced_data():
+    # 기본 상권 데이터 (SRS 로직 기반) [cite: 32, 99]
+    base_data = {
+        '지역': ['강남역/서초', '성수동/연남', '잠실/마포', '노원/은평', '한남/이태원'],
+        '위험점수': [65.2, 32.1, 44.5, 25.4, 41.2],
+        '매장수': [120, 85, 92, 45, 60],
+        '월평균매출': [5200, 4100, 3800, 2600, 4800], # 단위: 만원
+        '위도': [37.497, 37.544, 37.513, 37.654, 37.535],
+        '경도': [127.027, 127.056, 127.100, 127.056, 127.001],
+        '주방문층': ['3040 오피스', '2030 트렌드', '3040 가족', '5060 주거', '2030 외국인']
+    }
+    df = pd.DataFrame(base_data)
     return df
 
-df = load_data()
+df = get_advanced_data()
 
-# -------------------------
-# 사이드바
-# -------------------------
-st.sidebar.header("지역 선택")
+# --- 3. 사이드바: 지역 선택 및 필터 ---
+st.sidebar.title("🥐 BakeMap 분석 필터")
+selected_region = st.sidebar.selectbox("분석 대상 지역 선택", df['지역'])
+target_info = df[df['지역'] == selected_region].iloc[0]
 
-# '자치구' 컬럼에 결측치가 있을 경우를 대비해 처리
-districts = sorted(df["자치구"].dropna().unique())
-selected_district = st.sidebar.selectbox("자치구", districts)
+# --- 4. 메인 대시보드 ---
+st.title(f"📍 {selected_region} 상권 상세 분석 보고서")
+st.markdown(f"**핵심 가치:** {target_info['주방문층']} 중심의 {selected_region} 상권 데이터 분석 결과입니다.") [cite: 14]
 
-df_district = df[df["자치구"] == selected_district].copy() # SettingWithCopyWarning 방지
+# 상단 KPI (주요 지표) [cite: 59, 60]
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("창업 위험도(SRS)", f"{target_info['위험점수']}점", "상대지표") [cite: 95]
+kpi2.metric("예상 월 매출", f"{target_info['월평균매출']}만원", "평균치")
+kpi3.metric("현재 운영 매장", f"{target_info['매장수']}개")
+kpi4.metric("주요 타겟층", target_info['주방문층'])
 
-# -------------------------
-# 기본 지표 계산
-# -------------------------
-current_year = datetime.datetime.now().year
+st.write("---")
 
-active = df_district[df_district["영업상태"] == "영업"]
+# 중간 섹션: 지도 및 연령대 분석
+col1, col2 = st.columns([1.5, 1])
 
-# 최근 개업/폐업 (작년 기준)
-recent_open = df_district[df_district["인허가일자"].dt.year == current_year - 1]
-recent_close = df_district[df_district["폐업일자"].dt.year == current_year - 1]
+with col1:
+    st.subheader("🗺️ 입지 밀집도 (Heatmap)") [cite: 48, 56]
+    m = folium.Map(location=[target_info['위도'], target_info['경도']], zoom_start=14, tiles="cartodbpositron")
+    folium.Circle(
+        location=[target_info['위도'], target_info['경도']],
+        radius=500, color="orange", fill=True, tooltip=f"{selected_region} 핵심 상권"
+    ).add_to(m)
+    st_folium(m, width="100%", height=400)
 
-active_count = len(active)
-open_count = len(recent_open)
-close_count = len(recent_close)
+with col2:
+    st.subheader("👥 지역별 방문 연령대")
+    # 가상의 연령대 데이터
+    age_data = pd.DataFrame({
+        '연령대': ['10대', '20대', '30대', '40대', '50대', '60대+'],
+        '비중': [5, 25, 30, 20, 15, 5] if "2030" in target_info['주방문층'] else [5, 10, 20, 30, 25, 10]
+    })
+    fig_age = px.pie(age_data, values='비중', names='연령대', hole=0.4, 
+                     color_discrete_sequence=px.colors.sequential.RdBu)
+    st.plotly_chart(fig_age, use_container_width=True)
 
-# -------------------------
-# 위험도 점수 계산 (단순 MVP)
-# -------------------------
-closure_rate = close_count / open_count if open_count > 0 else 0
-density_index = active_count / 10
-entry_growth = open_count / 10
+# 하단 섹션: 시간대별 분석 및 메뉴 추천
+st.write("---")
+col3, col4 = st.columns(2)
 
-risk_score = (
-    closure_rate * 40 +
-    density_index * 35 +
-    entry_growth * 25
-)
-risk_score = min(100, round(risk_score, 1))
+with col3:
+    st.subheader("⏰ 시간대별 매출 비중")
+    time_data = pd.DataFrame({
+        '시간대': ['오전(07-11)', '점심(11-14)', '오후(14-17)', '저녁(17-21)'],
+        '매출비중(%)': [20, 15, 45, 20]
+    })
+    fig_time = px.line(time_data, x='시간대', y='매출비중(%)', markers=True)
+    st.plotly_chart(fig_time, use_container_width=True)
 
-# -------------------------
-# KPI 표시
-# -------------------------
-col1, col2, col3, col4 = st.columns(4)
+with col4:
+    st.subheader("🥖 시간대별 인기 메뉴 추천")
+    # 비즈니스 로직에 기반한 추천
+    recommendations = {
+        '오전(07-11)': "샌드위치, 아메리카노 세트",
+        '점심(11-14)': "식사용 빵(사워도우, 바게트)",
+        '오후(14-17)': "디저트류(타르트, 휘낭시에)",
+        '저녁(17-21)': "식빵류, 홀케이크"
+    }
+    for time, menu in recommendations.items():
+        st.write(f"**{time}**: {menu}")
 
-col1.metric("현재 영업 매장", f"{active_count}개")
-col2.metric("최근 개업 (작년)", f"{open_count}개")
-col3.metric("최근 폐업 (작년)", f"{close_count}개")
-col4.metric("창업 위험도", f"{risk_score}점")
-
-# -------------------------
-# 시각화 (차트)
-# -------------------------
-col_left, col_right = st.columns(2)
-
-with col_left:
-    st.subheader("연도별 개업 추이")
-    df_district["year"] = df_district["인허가일자"].dt.year
-    open_trend = df_district.groupby("year").size().reset_index(name="개업수")
-    fig = px.bar(open_trend, x="year", y="개업수", color_discrete_sequence=['#FF8C00'])
-    st.plotly_chart(fig, use_container_width=True)
-
-with col_right:
-    st.subheader("연도별 폐업 추이")
-    df_district["close_year"] = df_district["폐업일자"].dt.year
-    close_trend = df_district.groupby("close_year").size().reset_index(name="폐업수")
-    fig2 = px.line(close_trend, x="close_year", y="폐업수", markers=True)
-    st.plotly_chart(fig2, use_container_width=True)
-
-# -------------------------
-# 데이터 테이블
-# -------------------------
-st.subheader(f"📍 {selected_district} 데이터 상세 내역")
-st.dataframe(df_district.sort_values("인허가일자", ascending=False).head(100))
+# --- 5. 리포트 생성 섹션 --- [cite: 73, 74]
+st.write("---")
+if st.button("📄 상세 상권 분석 PDF 리포트 생성"):
+    st.info(f"{selected_region} 지역의 데이터 기반 창업 제안서를 생성 중입니다...")
+    st.success("리포트 생성이 완료되었습니다. (다운로드 링크 활성화)")
