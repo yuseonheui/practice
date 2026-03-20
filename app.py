@@ -7,7 +7,10 @@ import plotly.express as px
 
 st.set_page_config(
     page_title="BakeMap",
-    layout="wide"
+    layout="wide"import os
+st.write("현재 폴더 파일 목록:", os.listdir("."))
+if os.path.exists("data"):
+    st.write("data 폴더 안의 파일:", os.listdir("data"))
 )
 
 st.title("🥐 BakeMap - 베이커리 창업 입지 분석")
