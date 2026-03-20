@@ -1,72 +1,116 @@
-from docx import Document
-from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+import streamlit as st
+import pandas as pd
+import numpy as np
+import datetime
+import plotly.express as px
+import os  # os 모듈이 누락되어 추가했습니다.
 
-# Create a new Document
-doc = Document()
+st.set_page_config(
+    page_title="BakeMap",
+    layout="wide")
 
-# Define Title
-title = doc.add_heading('BakeMap: 데이터 기반 베이커리 창업 입지 분석 서비스', 0)
-title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+# -------------------------
+# 경로 설정 및 파일 확인 (디버깅용)
+# -------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 'data' 폴더와 'csv' 파일의 경로를 시스템에 맞게 결합
+csv_path = os.path.join(BASE_DIR, "data", "bakery_license.csv")
 
-doc.add_paragraph('서비스 기획안 / 사업 제안서 (고도화 버전)').alignment = WD_ALIGN_PARAGRAPH.CENTER
-doc.add_paragraph('작성일: 2025년 3월').alignment = WD_ALIGN_PARAGRAPH.CENTER
+# 배포 시 파일이 있는지 확인하기 위한 로그 (불필요하면 나중에 삭제 가능)
+if not os.path.exists(csv_path):
+    st.error(f"⚠️ 파일을 찾을 수 없습니다: {csv_path}")
+    st.info("GitHub 저장소에 'data' 폴더와 'bakery_license.csv' 파일이 있는지 확인해주세요.")
+    st.stop() # 파일이 없으면 아래 코드를 실행하지 않고 멈춤
 
-# 1. 서비스 개요
-doc.add_heading('1. 서비스 개요', level=1)
-doc.add_paragraph(
-    "BakeMap은 서울시 인허가 데이터와 카드 매출 빅데이터를 결합하여, 베이커리 창업 예정자에게 "
-    "단순 위치 정보 이상의 '매출 구조'와 '타겟 고객 분석'을 제공하는 업종 특화 상권 분석 플랫폼입니다."
+st.title("🥐 BakeMap - 베이커리 창업 입지 분석")
+st.markdown("서울 공공데이터 기반 베이커리 상권 분석 MVP")
+
+# -------------------------
+# 데이터 로드
+# -------------------------
+@st.cache_data
+def load_data():
+    # 수정된 경로(csv_path)를 사용합니다.
+    df = pd.read_csv(csv_path)
+    
+    df["인허가일자"] = pd.to_datetime(df["인허가일자"], errors="coerce")
+    df["폐업일자"] = pd.to_datetime(df["폐업일자"], errors="coerce")
+
+    return df
+
+df = load_data()
+
+# -------------------------
+# 사이드바
+# -------------------------
+st.sidebar.header("지역 선택")
+
+# '자치구' 컬럼에 결측치가 있을 경우를 대비해 처리
+districts = sorted(df["자치구"].dropna().unique())
+selected_district = st.sidebar.selectbox("자치구", districts)
+
+df_district = df[df["자치구"] == selected_district].copy() # SettingWithCopyWarning 방지
+
+# -------------------------
+# 기본 지표 계산
+# -------------------------
+current_year = datetime.datetime.now().year
+
+active = df_district[df_district["영업상태"] == "영업"]
+
+# 최근 개업/폐업 (작년 기준)
+recent_open = df_district[df_district["인허가일자"].dt.year == current_year - 1]
+recent_close = df_district[df_district["폐업일자"].dt.year == current_year - 1]
+
+active_count = len(active)
+open_count = len(recent_open)
+close_count = len(recent_close)
+
+# -------------------------
+# 위험도 점수 계산 (단순 MVP)
+# -------------------------
+closure_rate = close_count / open_count if open_count > 0 else 0
+density_index = active_count / 10
+entry_growth = open_count / 10
+
+risk_score = (
+    closure_rate * 40 +
+    density_index * 35 +
+    entry_growth * 25
 )
+risk_score = min(100, round(risk_score, 1))
 
-# 2. 추가 분석 항목: 지역별 매출 구조
-doc.add_heading('2. 지역별 매출 구조 및 수익성 분석', level=1)
-table = doc.add_table(rows=1, cols=3)
-table.style = 'Table Grid'
-hdr_cells = table.rows[0].cells
-hdr_cells[0].text = '상권 유형'
-hdr_cells[1].text = '평균 월 매출'
-hdr_cells[2].text = '매출 특징'
+# -------------------------
+# KPI 표시
+# -------------------------
+col1, col2, col3, col4 = st.columns(4)
 
-row_cells = table.add_row().cells
-row_cells[0].text = '오피스/고급 주거 (강남, 서초)'
-row_cells[1].text = '4,500 ~ 5,500만 원'
-row_cells[2].text = '선물용 세트, 홀케이크 비중 높음 (객단가 상)'
+col1.metric("현재 영업 매장", f"{active_count}개")
+col2.metric("최근 개업 (작년)", f"{open_count}개")
+col3.metric("최근 폐업 (작년)", f"{close_count}개")
+col4.metric("창업 위험도", f"{risk_score}점")
 
-row_cells = table.add_row().cells
-row_cells[0].text = 'MZ 핫플레이스 (성수, 연남)'
-row_cells[1].text = '3,500 ~ 4,200만 원'
-row_cells[2].text = '트렌드 단품 메뉴(소금빵 등) 집중 소비'
+# -------------------------
+# 시각화 (차트)
+# -------------------------
+col_left, col_right = st.columns(2)
 
-row_cells = table.add_row().cells
-row_cells[0].text = '일반 주거 단지 (노원, 은평)'
-row_cells[1].text = '2,200 ~ 2,800만 원'
-row_cells[2].text = '식사 대용 빵(식빵 등) 회전율 중심'
+with col_left:
+    st.subheader("연도별 개업 추이")
+    df_district["year"] = df_district["인허가일자"].dt.year
+    open_trend = df_district.groupby("year").size().reset_index(name="개업수")
+    fig = px.bar(open_trend, x="year", y="개업수", color_discrete_sequence=['#FF8C00'])
+    st.plotly_chart(fig, use_container_width=True)
 
-# 3. 시간대별 인기 메뉴 및 매출액
-doc.add_heading('3. 시간대별 인기 메뉴 및 매출 추이', level=1)
-doc.add_paragraph("매장 운영 효율화를 위한 시간대별 데이터 분석 결과를 제공합니다.")
-doc.add_paragraph("- 오전 (07:00 ~ 10:00): 매출 20% | 인기메뉴: 샌드위치, 모닝커피 세트")
-doc.add_paragraph("- 오후 (13:00 ~ 16:00): 매출 45% | 인기메뉴: 디저트류(타르트, 구움과자), 음료")
-doc.add_paragraph("- 저녁 (17:00 ~ 20:00): 매출 35% | 인기메뉴: 식빵류, 홀케이크(기념일/퇴근길)")
+with col_right:
+    st.subheader("연도별 폐업 추이")
+    df_district["close_year"] = df_district["폐업일자"].dt.year
+    close_trend = df_district.groupby("close_year").size().reset_index(name="폐업수")
+    fig2 = px.line(close_trend, x="close_year", y="폐업수", markers=True)
+    st.plotly_chart(fig2, use_container_width=True)
 
-# 4. 지역별 방문 연령대 분석
-doc.add_heading('4. 지역별 매장 방문 연령대 데이터', level=1)
-doc.add_paragraph(
-    "입지에 따라 주 방문 고객층이 다르므로, 이에 맞춘 메뉴 구성 전략을 제안합니다."
-)
-doc.add_paragraph("• 2030 상권 (홍대, 성수, 이태원): SNS 가시성이 높은 화려한 비주얼의 디저트 메뉴 선호.")
-doc.add_paragraph("• 3040 상권 (판교, 잠실, 마포): 자녀 간식용 건강빵(천연발효종, 통밀) 및 프리미엄 식재료 선호.")
-doc.add_paragraph("• 5060 상권 (종로, 서촌, 전통주거지): 단팥빵, 맘모스빵 등 익숙한 맛과 부드러운 식감의 메뉴 선호.")
-
-# 5. 핵심 기능 확장
-doc.add_heading('5. 고도화된 서비스 기능', level=1)
-doc.add_paragraph("1) 매출 예측 시뮬레이션: 선택 지역 입점 시 예상 월 매출 및 객단가 추정")
-doc.add_paragraph("2) 타겟 고객 매칭: 내 레시피와 가장 잘 맞는 연령대가 밀집된 지역 추천")
-doc.add_paragraph("3) 인벤토리 가이드: 시간대별 매출 추이에 따른 빵 생산 스케줄 권장")
-
-# Save the document
-file_path = "/mnt/data/BakeMap_Enhanced_Business_Plan.docx"
-doc.save(file_path)
-
-file_path
+# -------------------------
+# 데이터 테이블
+# -------------------------
+st.subheader(f"📍 {selected_district} 데이터 상세 내역")
+st.dataframe(df_district.sort_values("인허가일자", ascending=False).head(100))
