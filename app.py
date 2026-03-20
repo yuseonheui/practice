@@ -25,7 +25,7 @@ def load_data():
         st.error("데이터 파일을 찾을 수 없습니다. 'data/bakery_license.csv' 경로를 확인해주세요.")
         st.stop()
 
-    # 날짜 형식 변환
+    # 날짜 형식 변환 [cite: 179]
     df["인허가일자"] = pd.to_datetime(df["인허가일자"], errors="coerce")
     df["폐업일자"] = pd.to_datetime(df["폐업일자"], errors="coerce")
     return df
@@ -41,7 +41,7 @@ selected_district = st.sidebar.selectbox("자치구 선택", districts)
 df_district = df[df["자치구"] == selected_district].copy()
 
 # --- 3. 핵심 지표 계산 (SRS 알고리즘 2.0) ---
-# 기획안 7.2 산출 방식 반영
+# 기획안 7.2 산출 방식 반영 [cite: 246, 250]
 current_year = datetime.datetime.now().year
 recent_3y = current_year - 3
 
@@ -59,13 +59,13 @@ this_year_open = len(df_district[df_district["인허가일자"].dt.year == curre
 last_year_open = len(df_district[df_district["인허가일자"].dt.year == current_year - 2])
 entry_growth = (this_year_open - last_year_open) / last_year_open if last_year_open > 0 else 0
 
-# SRS 최종 점수 산출 (가중치: 40%, 35%, 25%)
+# SRS 최종 점수 산출 (가중치: 40%, 35%, 25%) [cite: 250]
 risk_score = (closure_rate * 40) + (min(density_index, 100) * 0.35) + (max(entry_growth, 0) * 25)
 risk_score = min(100, round(risk_score, 1))
 
 # --- 4. 메인 화면 구성 ---
 st.title("🥐 BakeMap - 베이커리 창업 입지 분석")
-st.markdown(f"**{selected_district}** 상권의 공공데이터 및 매출 구조 분석 리포트입니다.")
+st.markdown(f"**{selected_district}** 상권의 공공데이터 및 매출 구조 분석 리포트입니다. [cite: 161]")
 
 # KPI 지표 표시
 col1, col2, col3, col4 = st.columns(4)
@@ -73,7 +73,7 @@ col1.metric("현재 영업 매장", f"{active_count}개")
 col2.metric("최근 1년 개업", f"{this_year_open}개")
 col3.metric("최근 1년 폐업", f"{len(df_district[df_district['폐업일자'].dt.year == current_year - 1])}개")
 
-# 위험도 점수에 따른 색상 표기
+# 위험도 점수에 따른 색상 표기 [cite: 252]
 if risk_score <= 30:
     col4.metric("창업 위험도", f"{risk_score}점", "안전", delta_color="inverse")
 elif risk_score <= 70:
@@ -136,4 +136,7 @@ with t_col2:
 # --- 7. 데이터 테이블 및 리포트 (Pro 기능) ---
 st.divider()
 st.subheader("📄 상세 데이터 미리보기")
-st.dataframe(df_district.sort_values("인허가일자
+st.dataframe(df_district.sort_values("인허가일자", ascending=False).head(50), use_container_width=True)
+
+if st.button("🚀 전체 상권 분석 리포트 PDF 다운로드 (Pro)"):
+    st.write(f"{selected_district} 지역의 정밀 분석 리포트를 생성 중입니다... [cite: 222]")
